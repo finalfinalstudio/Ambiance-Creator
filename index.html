@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>my ambience</title>
+<style>
+:root{--bg:#fff;--panel:#f7f7f5;--card:#fff;--text:#222;--muted:#707070;--border:#e7e7e4;--accent:#222;--shadow:0 8px 24px rgba(0,0,0,.08)}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);transition:background .25s,color .25s}body.dark{--panel:#252525;--card:#1f1f1f;--text:#f4f4f4;--muted:#aaa;--border:#393939;--accent:#f4f4f4;--shadow:0 8px 24px rgba(0,0,0,.28)}
+.app{max-width:1120px;margin:auto;padding:24px}header{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:18px}h1{font-size:24px;margin:0;text-transform:lowercase}.sub{color:var(--muted);font-size:14px;margin-top:4px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}button,select,input[type=color],input[type=text]{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:9px;padding:9px 12px;font:inherit;text-transform:lowercase}button{cursor:pointer;font-weight:600}button.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}button:hover{filter:brightness(.96)}
+.presets{display:flex;gap:8px;flex-wrap:wrap;background:var(--panel);padding:12px;border-radius:12px;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}.card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}.photo{height:118px;background-size:cover;background-position:center;position:relative}.photo:after{content:"";position:absolute;inset:0;background:linear-gradient(transparent,rgba(0,0,0,.44))}.label{position:absolute;left:12px;bottom:10px;z-index:1;color:#fff;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.5);text-transform:lowercase}.controls{padding:12px}.row{display:flex;justify-content:space-between;align-items:center;gap:10px}.value,.footer,.timer-status{font-size:12px;color:var(--muted)}input[type=range]{width:100%;accent-color:var(--accent)}.footer{margin-top:18px;text-align:center}.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;padding:20px}.modal.open{display:flex}.dialog{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;max-width:420px;width:100%;box-shadow:var(--shadow)}.dialog h2{margin-top:0;text-transform:lowercase}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.timer-wrap{display:flex;align-items:center;gap:8px}.missing{font-size:11px;color:#b45309;margin-top:7px;display:none}.card.audio-error .missing{display:block}@media(max-width:600px){.app{padding:14px}.photo{height:105px}}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div><h1>my ambience</h1><div class="sub">create your own soundscape for work, reading, and rest.</div></div>
+  <div class="toolbar">
+    <button id="playAll" class="primary">▶ play</button>
+    <button id="pauseAll">⏸ pause</button>
+    <div class="timer-wrap"><select id="sleepTimer" aria-label="sleep timer"><option value="0">timer off</option><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 hour</option><option value="120">2 hours</option></select><span id="timerStatus" class="timer-status"></span></div>
+    <input id="bgColor" type="color" value="#ffffff" title="background color">
+    <button id="theme">🌙 dark theme</button>
+    <button id="savePreset">＋ save preset</button>
+  </div>
+</header>
+<div class="presets" id="presetBar"></div>
+<div class="grid" id="grid"></div>
+<div class="footer">audio starts after you click play. custom presets, theme, and background color are saved locally in this browser.</div>
+</div>
+<div class="modal" id="modal"><div class="dialog"><h2>save custom preset</h2><input id="presetName" type="text" placeholder="preset name" style="width:100%"><div class="dialog-actions"><button id="cancelSave">cancel</button><button id="confirmSave" class="primary">save</button></div></div></div>
+<script>
+const sounds=[
+ ['birds','birds','audio/birds.mp3','images/birds.jpg'],
+ ['fireplace','fireplace','audio/fireplace.mp3','images/fireplace.jpg'],
+ ['wind','wind','audio/wind.mp3','images/wind.jpg'],
+ ['sea','sea','audio/sea.mp3','images/sea.jpg'],
+ ['thunderstorm','thunderstorm','audio/thunderstorm.mp3','images/thunderstorm.jpg'],
+ ['rain','rain','audio/rain.mp3','images/rain.jpg'],
+ ['cafe','busy cafe','audio/cafe.mp3','images/cafe.jpg'],
+ ['river','river','audio/river.mp3','images/river.jpg'],
+ ['train','train','audio/train.mp3','images/train.jpg'],
+ ['pink','pink noise',null,'images/pink.jpg'],
+ ['brown','brown noise',null,'images/brown.jpg'],
+ ['white','white noise',null,'images/white.jpg']
+];
+const builtInPresets={
+ 'forest':{birds:55,wind:25,river:22},
+ 'fireplace':{fireplace:62,wind:15},
+ 'seaside':{sea:68,wind:18,birds:12},
+ 'storm':{rain:60,thunderstorm:38,fireplace:18},
+ 'busy cafe':{cafe:52,rain:18},
+ 'focus':{brown:48,rain:18},
+ 'sleep':{pink:35,sea:25},
+ 'train journey':{train:58,rain:18,brown:12}
+};
+let ctx,master,nodes={},playing=false,timerId=null,timerEnd=0,timerTicker=null;
+const values=JSON.parse(localStorage.getItem('ambienceValues')||'{}');
+function noiseSource(type){const length=ctx.sampleRate*4,buf=ctx.createBuffer(1,length,ctx.sampleRate),d=buf.getChannelData(0);let last=0,p1=0,p2=0,p3=0;for(let i=0;i<length;i++){const w=Math.random()*2-1;if(type==='brown'){last=(last+.02*w)/1.02;d[i]=last*3.5}else if(type==='pink'){p1=.99886*p1+w*.0555179;p2=.99332*p2+w*.0750759;p3=.969*p3+w*.153852;d[i]=(p1+p2+p3+w*.5362)*.16}else d[i]=w*.35}const src=ctx.createBufferSource();src.buffer=buf;src.loop=true;return src}
+function setup(){if(ctx)return;ctx=new (window.AudioContext||window.webkitAudioContext)();master=ctx.createGain();master.gain.value=0;master.connect(ctx.destination);sounds.forEach(([id,,audioPath])=>{const gain=ctx.createGain();gain.gain.value=(values[id]||0)/100;gain.connect(master);if(audioPath){const audio=new Audio(audioPath);audio.loop=true;audio.preload='auto';audio.crossOrigin='anonymous';audio.addEventListener('error',()=>document.querySelector(`[data-card='${id}']`)?.classList.add('audio-error'));const src=ctx.createMediaElementSource(audio);src.connect(gain);nodes[id]={gain,audio}}else{const src=noiseSource(id);src.connect(gain);src.start();nodes[id]={gain,src}}})}
+function setVolume(id,v){values[id]=+v;localStorage.setItem('ambienceValues',JSON.stringify(values));document.querySelector(`#v-${id}`).textContent=v+'%';if(nodes[id])nodes[id].gain.gain.setTargetAtTime(v/100,ctx.currentTime,.08)}
+function render(){const grid=document.getElementById('grid');sounds.forEach(([id,name,,img])=>{const v=values[id]||0;grid.insertAdjacentHTML('beforeend',`<div class="card" data-card="${id}"><div class="photo" style="background-image:url('${img}')"><div class="label">${name}</div></div><div class="controls"><div class="row"><span>volume</span><span class="value" id="v-${id}">${v}%</span></div><input aria-label="${name}" data-id="${id}" type="range" min="0" max="100" value="${v}"><div class="missing">audio file not found</div></div></div>`) });document.querySelectorAll('input[type=range]').forEach(x=>x.addEventListener('input',e=>{setup();setVolume(e.target.dataset.id,e.target.value)}));renderPresets()}
+function applyPreset(p){sounds.forEach(([id])=>{const v=p[id]||0;document.querySelector(`input[data-id='${id}']`).value=v;setVolume(id,v)});play()}
+function renderPresets(){const bar=document.getElementById('presetBar');bar.innerHTML='';const custom=JSON.parse(localStorage.getItem('customPresets')||'{}');Object.entries({...builtInPresets,...custom}).forEach(([n,p])=>{const b=document.createElement('button');b.textContent=n.toLowerCase();b.onclick=()=>applyPreset(p);bar.appendChild(b)})}
+async function play(){setup();await ctx.resume();for(const node of Object.values(nodes)){if(node.audio){try{await node.audio.play()}catch(e){}}}sounds.forEach(([id])=>setVolume(id,values[id]||0));master.gain.cancelScheduledValues(ctx.currentTime);master.gain.setValueAtTime(master.gain.value,ctx.currentTime);master.gain.linearRampToValueAtTime(.75,ctx.currentTime+1.5);playing=true}
+function pause(){if(!ctx)return;master.gain.cancelScheduledValues(ctx.currentTime);master.gain.setValueAtTime(master.gain.value,ctx.currentTime);master.gain.linearRampToValueAtTime(0,ctx.currentTime+1.5);setTimeout(()=>{if(!playing)Object.values(nodes).forEach(n=>n.audio?.pause())},1600);playing=false}
+function clearTimer(){clearTimeout(timerId);clearInterval(timerTicker);timerId=null;timerEnd=0;document.getElementById('timerStatus').textContent=''}
+function setTimer(minutes){clearTimer();if(!minutes)return;timerEnd=Date.now()+minutes*60000;timerId=setTimeout(()=>{playing=false;pause();document.getElementById('sleepTimer').value='0';clearTimer()},minutes*60000);timerTicker=setInterval(()=>{const left=Math.max(0,timerEnd-Date.now());const m=Math.floor(left/60000),s=Math.floor((left%60000)/1000);document.getElementById('timerStatus').textContent=`${m}:${String(s).padStart(2,'0')}`},1000)}
+document.getElementById('playAll').onclick=play;document.getElementById('pauseAll').onclick=()=>{playing=false;pause()};document.getElementById('sleepTimer').onchange=e=>setTimer(+e.target.value);
+const color=document.getElementById('bgColor');color.value=localStorage.getItem('bgColor')||'#ffffff';document.documentElement.style.setProperty('--bg',color.value);color.oninput=e=>{document.documentElement.style.setProperty('--bg',e.target.value);localStorage.setItem('bgColor',e.target.value)};
+const theme=document.getElementById('theme');if(localStorage.getItem('dark')==='1'){document.body.classList.add('dark');theme.textContent='☀️ light theme'}theme.onclick=()=>{document.body.classList.toggle('dark');const d=document.body.classList.contains('dark');theme.textContent=d?'☀️ light theme':'🌙 dark theme';localStorage.setItem('dark',d?'1':'0')};
+const modal=document.getElementById('modal');document.getElementById('savePreset').onclick=()=>modal.classList.add('open');document.getElementById('cancelSave').onclick=()=>modal.classList.remove('open');document.getElementById('confirmSave').onclick=()=>{const n=document.getElementById('presetName').value.trim().toLowerCase();if(!n)return;const c=JSON.parse(localStorage.getItem('customPresets')||'{}');c[n]={...values};localStorage.setItem('customPresets',JSON.stringify(c));document.getElementById('presetName').value='';modal.classList.remove('open');renderPresets()};
+render();
+</script>
+</body>
+</html>
